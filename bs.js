@@ -32,7 +32,11 @@ const BS = (() => {
     while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (START[mid] <= dayNum) lo = mid; else hi = mid - 1; }
     return { y: Y0 + Math.floor(lo / 12), m: lo % 12 + 1, d: dayNum - START[lo] + 1 };
   }
-  const expiry = b => ({ y: b.y + 1, m: b.m, d: Math.min(b.d, dim(b.y + 1, b.m)) });
+  const EXPIRY_MONTHS = 6;                                        // expiry period in BS calendar months
+  const expiry = b => {
+    const k = b.m - 1 + EXPIRY_MONTHS, y = b.y + Math.floor(k / 12), m = k % 12 + 1;
+    return { y, m, d: Math.min(b.d, dim(y, m)) };                 // same day; last day of month if it does not exist
+  };
   // calendar months + days from t to e (e >= t); month-end clamped
   function diff(t, e) {
     const a = Math.min(t.d, dim(e.y, e.m));
@@ -66,6 +70,6 @@ const BS = (() => {
   }
   const todayDayNum = () => { const n = new Date(); return Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()) / 864e5; };
   const adStr = n => new Date(n * 864e5).toISOString().slice(0, 10);
-  return { Y0, Y1, MONTHS, MONTHS_NP, dim, parse, toAD, fromAD, expiry, diff, evaluate, fmt, toDev, todayDayNum, adStr };
+  return { EXPIRY_MONTHS, Y0, Y1, MONTHS, MONTHS_NP, dim, parse, toAD, fromAD, expiry, diff, evaluate, fmt, toDev, todayDayNum, adStr };
 })();
 if (typeof module !== "undefined") module.exports = BS;

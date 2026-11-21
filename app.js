@@ -6,10 +6,10 @@ const ST = ["RED", "YELLOW", "GREEN", "OVERDUE", "CHECK"];
 const ST_NAME = { RED: "Red · Urgent", YELLOW: "Yellow · Warning", GREEN: "Green · Normal", OVERDUE: "Overdue · Expired", CHECK: "Check Darta Miti" };
 const ST_SHORT = { RED: "Red", YELLOW: "Yellow", GREEN: "Green", OVERDUE: "Overdue", CHECK: "Check date" };
 const ST_HINT = {
-  RED: "One month or less left before the one-year expiry (including the expiry day). Act on these first.",
+  RED: "One month or less left before the 6-month expiry (including the expiry day). Act on these first.",
   YELLOW: "More than one month and up to two months left. Follow up and prepare.",
   GREEN: "More than two months left. Normal monitoring.",
-  OVERDUE: "The one-year period has passed.",
+  OVERDUE: "The 6-month period has passed.",
   CHECK: "The Darta Miti could not be read as a Bikram Sambat date. Open each case and pick the correct date.",
   ALL: "Every registered case, soonest expiry first."
 };
@@ -122,7 +122,7 @@ function kpi(cls, href, label, val, icon, pct, foot) {
 }
 function ring(x) {
   const r = x.r, total = r.total, col = ST_COLOR[r.status], C = 2 * Math.PI * 21;
-  const frac = Math.max(0.04, Math.min(1, total / 365));
+  const frac = Math.max(0.04, Math.min(1, total / 183));
   return `<div class="ring"><svg width="56" height="56" viewBox="0 0 50 50"><circle cx="25" cy="25" r="21" fill="none" stroke="#eef0f4" stroke-width="5"/>
     <circle cx="25" cy="25" r="21" fill="none" stroke="${col}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${C * frac} ${C}"/></svg>
     <b>${total}<small>${total === 1 ? "DAY" : "DAYS"}</small></b></div>`;
@@ -148,7 +148,7 @@ function dashView() {
     ${kpi("k-red", "red", "Red · ≤ 1 month", n.RED, "alert", n.RED / all * 100, "Immediate attention")}
     ${kpi("k-yel", "yellow", "Yellow · 1–2 months", n.YELLOW, "clock", n.YELLOW / all * 100, "Follow up")}
     ${kpi("k-grn", "green", "Green · > 2 months", n.GREEN, "check", n.GREEN / all * 100, "Normal monitoring")}
-    ${kpi("k-ovd", "overdue", "Overdue", n.OVERDUE, "hour", n.OVERDUE / all * 100, "One year has passed")}
+    ${kpi("k-ovd", "overdue", "Overdue", n.OVERDUE, "hour", n.OVERDUE / all * 100, "6 months have passed")}
     ${kpi("k-30", "red", "Expiring ≤ 30 days", red30, "bell", red30 / all * 100, "Next 30 calendar days")}
     ${kpi("k-60", "yellow", "Expiring ≤ 60 days", S.within(60), "cal", S.within(60) / all * 100, "Next 60 calendar days")}
     ${n.CHECK ? kpi("k-chk", "check", "Darta Miti to check", n.CHECK, "edit", n.CHECK / all * 100, "Date could not be read") : ""}
@@ -160,7 +160,7 @@ function dashView() {
       <div class="legend">${ST.filter(s => s !== "CHECK" || n.CHECK).map(s => `<a href="#${s.toLowerCase()}"><i style="background:${ST_COLOR[s]}"></i><span>${ST_SHORT[s]}</span><b>${n[s]}</b><em>${(n[s] / all * 100).toFixed(1)}%</em></a>`).join("")}</div></div>
     </div>
     <div class="panel span-7">
-      <div class="panel-h"><h2><span class="tic" style="--c:#7a4cc2">${ic("cal", 16, 2.2)}</span>Expiries in the next 12 BS months</h2><span class="sub">cases reaching their one-year date each month</span></div>
+      <div class="panel-h"><h2><span class="tic" style="--c:#7a4cc2">${ic("cal", 16, 2.2)}</span>Expiries in the next 7 BS months</h2><span class="sub">cases reaching their 6-month expiry date each month</span></div>
       <div class="chartbox"><canvas id="cMonths" aria-label="Expiries per BS month"></canvas></div>
     </div>
     <div class="panel span-12">
@@ -207,9 +207,9 @@ function drawCharts() {
   S.chart.donut = new Chart($("#cDonut"), { type: "doughnut",
     data: { labels: shown.map(s => ST_SHORT[s]), datasets: [{ data: shown.map(s => n[s]), backgroundColor: shown.map(s => ST_COLOR[s]), borderWidth: 3, borderColor: "#fff", hoverOffset: 6 }] },
     options: { cutout: "72%", maintainAspectRatio: false, plugins: { legend: { display: false } }, onClick: (e, els) => { if (els[0]) location.hash = shown[els[0].index].toLowerCase(); } } });
-  // next 12 BS months, stacked by the colour each case will be at expiry time? keep simple: one colour, current month highlighted
+  // current BS month + the next 6 months
   const t = BS.fromAD(today()), months = [];
-  for (let i = 0; i < 12; i++) { const k = t.m - 1 + i; months.push({ y: t.y + Math.floor(k / 12), m: k % 12 + 1, n: 0 }); }
+  for (let i = 0; i <= BS.EXPIRY_MONTHS; i++) { const k = t.m - 1 + i; months.push({ y: t.y + Math.floor(k / 12), m: k % 12 + 1, n: 0 }); }
   S.ev.forEach(x => { if (x.r.exp && x.r.total >= 0) { const o = months.find(o => o.y === x.r.exp.y && o.m === x.r.exp.m); if (o) o.n++; } });
   const ctx = $("#cMonths").getContext("2d"); const g = ctx.createLinearGradient(0, 0, 0, 250); g.addColorStop(0, "#3b5bdb"); g.addColorStop(1, "#8da2f0");
   S.chart.months = new Chart(ctx, { type: "bar",
@@ -250,7 +250,7 @@ function listView(status) {
       <td class="date">${ok ? `<b>${BS.fmt(r.darta)}</b><span>Darta Miti</span>` : `<b style="color:var(--red-ink)">${esc(dateOf(x.c)) || "(blank)"}</b><span>cannot be read</span>`}</td>
       <td class="date">${ok ? `<b>${BS.fmt(r.exp)}</b><span>${BS.adStr(r.expAD)} AD</span>` : "–"}</td>
       <td><span class="remain" style="color:${ok ? (r.status === "GREEN" ? "var(--ink)" : ST_COLOR[r.status]) : "var(--muted)"}">${esc(r.label)}</span>
-        ${ok ? `<div class="prog" title="${pct.toFixed(0)}% of the one-year period used"><i style="width:${pct}%;background:${ST_COLOR[r.status]}"></i></div>` : ""}</td>
+        ${ok ? `<div class="prog" title="${pct.toFixed(0)}% of the 6-month period used"><i style="width:${pct}%;background:${ST_COLOR[r.status]}"></i></div>` : ""}</td>
       <td class="num">${ok ? (ov ? `${-r.total} overdue` : `${r.total} days`) : "–"}</td>
       <td><span class="pill p-${r.status}">${ST_SHORT[r.status]}</span></td></tr>`;
   }).join("");
@@ -271,7 +271,7 @@ function openDrawer(id) {
   $("#drawer").innerHTML = `<div class="mh"><h2>${esc(colSerial())} ${esc(c.f[colSerial()])} · ${esc(c.f[colName()])}</h2><button class="x" data-act="close" aria-label="Close">${ic("x", 16)}</button></div>
   <div class="mb">
     <div class="hero-status ${r.status}"><span style="opacity:.9;font-weight:600">${ST_NAME[r.status]}</span><b>${esc(r.label)}</b>
-      ${ok ? `<div class="track"><div class="rail"><i style="width:${pct}%"></i></div><div class="ends"><span>Darta ${BS.fmt(r.darta)}</span><span>${pct.toFixed(0)}% of the year used</span><span>Expiry ${BS.fmt(r.exp)}</span></div></div>
+      ${ok ? `<div class="track"><div class="rail"><i style="width:${pct}%"></i></div><div class="ends"><span>Darta ${BS.fmt(r.darta)}</span><span>${pct.toFixed(0)}% of the period used</span><span>Expiry ${BS.fmt(r.exp)}</span></div></div>
       <span style="font-size:.86rem;opacity:.9">Expiry: ${r.exp.d} ${BS.MONTHS[r.exp.m - 1]} ${r.exp.y} BS · ${WEEK_EN[wd(r.expAD)]}, ${BS.adStr(r.expAD)} AD</span>` : `<span>Edit the case and pick the correct Darta Miti.</span>`}</div>
     <dl class="kv">${S.headers.map(h => `<dt>${esc(h)}</dt><dd>${esc(c.f[h]) || '<span class="stamp">–</span>'}</dd>`).join("")}</dl>
     ${c.createdAt ? `<div class="stamp">Added in this session at ${esc(c.createdAt)}</div>` : c.updatedAt ? `<div class="stamp">Edited in this session at ${esc(c.updatedAt)}</div>` : ""}
@@ -327,7 +327,7 @@ function openForm(id) {
     const r = BS.evaluate(raw.value, today()), pv = $("#pv");
     pv.className = "preview " + r.status;
     pv.innerHTML = r.status === "CHECK" ? `<span class="big">Not a valid BS date yet</span><span>Pick a day on the calendar.</span>` :
-      `<span class="stamp">One-year expiry</span><span class="big">${BS.fmt(r.exp)} · ${r.exp.d} ${BS.MONTHS[r.exp.m - 1]} ${r.exp.y}</span>
+      `<span class="stamp">6-month expiry</span><span class="big">${BS.fmt(r.exp)} · ${r.exp.d} ${BS.MONTHS[r.exp.m - 1]} ${r.exp.y}</span>
        <span>${WEEK_EN[wd(r.expAD)]}, ${BS.adStr(r.expAD)} AD</span><span><span class="pill p-${r.status}">${ST_SHORT[r.status]}</span> &nbsp;<b>${esc(r.label)}</b></span>`;
   };
   const pick = () => { raw.value = BS.fmt(F); drawCal(); preview(); };
@@ -453,7 +453,7 @@ function startView() {
     <div style="display:grid;gap:28px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:center">
       <div style="display:grid;gap:14px">
         <div class="eyebrow" style="color:var(--brand)">मुद्दा म्याद अनुगमन प्रणाली</div>
-        <h1 style="font-size:1.8rem">Track every case's one-year expiry in Bikram Sambat</h1>
+        <h1 style="font-size:1.8rem">Track every case's 6-month expiry in Bikram Sambat</h1>
         <p style="margin:0;color:var(--muted);max-width:56ch">Upload your case register (.xlsx). Each case gets its exact BS expiry date and is sorted into Red, Yellow, Green or Overdue.
         Add or edit cases here, then download the updated master Excel.</p>
         <ul class="steps" style="color:var(--muted)"><li>Your file is read inside this browser. It is never uploaded to any server.</li><li>Nothing is saved when you close the page. Always download the Excel after changes.</li></ul>
@@ -559,7 +559,7 @@ async function downloadExcel() {
     Object.assign(d.getCell(r, 3), { value: v, font: { name: LAT, size: 14, bold: true, color: { argb: "FFFFFFFF" } }, fill: { type: "pattern", pattern: "solid", fgColor: { argb: argb(col) } }, alignment: { horizontal: "center" }, border });
     if (i >= 1 && i <= 4) Object.assign(d.getCell(r, 5), { value: "█".repeat(Math.round(v / max * 40)) || "", font: { name: LAT, size: 10, color: { argb: argb(col) } } });
   });
-  ["How to read this file:", "• Expiry = the same BS day and month one year after the Darta Miti (last day of the month if that day does not exist).",
+  ["How to read this file:", "• Expiry = the same BS day, 6 BS months after the Darta Miti (last day of the month if that day does not exist).",
    "• Remaining time is calculated for the date shown above. Upload this file again on any day to see the current position.",
    "• BS month lengths for 2084 and later are projected until the official Panchanga is published."].forEach((t, i) =>
     Object.assign(d.getCell(15 + i, 2), { value: t, font: { name: LAT, size: 10, bold: i === 0, color: { argb: argb("#5D6676") } } }));
@@ -631,8 +631,8 @@ function helpView() {
       <li>Nothing is stored. Closing or reloading the page clears everything that has not been downloaded.</li>
       <li>The page warns you before closing if there are changes you have not downloaded.</li></ul></div>
     <div class="panel"><div class="panel-h"><h2>How the expiry is calculated</h2></div><ul class="steps">
-      <li>Expiry = the same BS day and month, one year after the Darta Miti (२०८३।०४।०४ → २०८४।०४।०४).</li>
-      <li>If that day does not exist next year (e.g. Asar 32 when next Asar has 31 days), the last day of that month is used.</li>
+      <li>Expiry = the same BS day, 6 BS months after the Darta Miti (२०८३।०४।०४ → २०८३।१०।०४, Shrawan → Magh).</li>
+      <li>If that day does not exist in the expiry month (e.g. day 32 when that month has only 30 days), the last day of that month is used.</li>
       <li><b>Red</b>: 1 month or less (incl. expiry day) · <b>Yellow</b>: more than 1, up to 2 months · <b>Green</b>: more than 2 months · <b>Overdue</b>: expiry passed.</li>
       <li>BS month lengths for 2084 onward are projected until the official Panchanga is published.</li></ul></div>
   </section>`;

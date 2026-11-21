@@ -1,6 +1,6 @@
 # Case Expiry Monitor (BS)
 
-Tracks the one-year expiry of registered cases from their **Darta Miti** in Bikram Sambat.
+Tracks the 6-month expiry of registered cases from their **Darta Miti** in Bikram Sambat.
 
 * Upload the case register (.xlsx) → dashboard, Red / Yellow / Green / Overdue lists.
 * Add, edit or delete cases, then **Download Excel** to get the updated master file.
