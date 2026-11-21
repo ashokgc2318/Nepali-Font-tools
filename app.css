@@ -367,3 +367,26 @@ table.list th { background: linear-gradient(180deg, #f7f8fc, #eff2f9); }
 .start .drop { background: #fff; border-color: #b9c5ea; box-shadow: 0 14px 34px -20px rgba(37,70,184,.5); }
 @media (max-width: 860px) { .hero { padding: 18px; } .hero h2 { font-size: 1.15rem; } .side::after { display: none; } }
 @media print { .hero, .kpi .wm { display: none !important; } }
+
+/* ================= cheque bounce 1-year check ================= */
+.k-bnc { --kc: #7a4cc2; background: linear-gradient(135deg, #fff 40%, #f3ecfc); }
+.k-bnc .icon { background: #f1eafb; color: #7a4cc2; }
+.k-bnc .val { color: #5b2e9e; }
+.k-bnc .meter i { background: #7a4cc2; }
+.bpill { display: inline-flex; align-items: center; gap: 5px; font-size: .76rem; font-weight: 700; padding: 3px 9px; border-radius: 8px; white-space: nowrap; border: 1px solid transparent; }
+.bpill.b-OK { background: #eaf8f0; color: #067647; border-color: #bfe8cf; }
+.bpill.b-OK::before { content: "✓"; }
+.bpill.b-LATE { background: #5b2e9e; color: #fff; }
+.bpill.b-LATE::before { content: "!"; font-weight: 800; }
+.bpill.b-WARN { background: #fff6e0; color: #a15c07; border-color: #f6dca1; }
+.bpill.b-NONE { background: transparent; color: var(--muted); border: 1px dashed #cfd5e3; font-weight: 600; }
+.bbox { border-radius: 14px; padding: 14px 16px; display: grid; gap: 6px; border: 1px solid var(--line); }
+.bbox b { display: block; font-family: var(--display); font-size: 1.05rem; }
+.bbox p { margin: 0; font-size: .92rem; }
+.bbox .eyebrow { color: var(--muted); }
+.bbox.b-OK { background: #eef9f2; border-color: #bfe8cf; }
+.bbox.b-LATE { background: linear-gradient(135deg, #f3ecfc, #fff); border-color: #d4c1f0; box-shadow: inset 4px 0 0 #7a4cc2; }
+.bbox.b-WARN { background: #fff8e8; border-color: #f6dca1; }
+.bbox.b-NONE { background: #f7f8fb; }
+.bfield { background: #f8f5fd; border: 1px dashed #d4c1f0; border-radius: 12px; padding: 10px 12px; }
+.bfield .stamp { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px; }

@@ -32,6 +32,8 @@ const BS = (() => {
     while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (START[mid] <= dayNum) lo = mid; else hi = mid - 1; }
     return { y: Y0 + Math.floor(lo / 12), m: lo % 12 + 1, d: dayNum - START[lo] + 1 };
   }
+  // add n BS calendar months, same day (last day of the month if that day does not exist)
+  const addMonths = (b, n) => { const k = b.m - 1 + n, y = b.y + Math.floor(k / 12), m = k % 12 + 1; return { y, m, d: Math.min(b.d, dim(y, m)) }; };
   const EXPIRY_MONTHS = 6;                                        // expiry period in BS calendar months
   const expiry = b => {
     const k = b.m - 1 + EXPIRY_MONTHS, y = b.y + Math.floor(k / 12), m = k % 12 + 1;
@@ -70,6 +72,6 @@ const BS = (() => {
   }
   const todayDayNum = () => { const n = new Date(); return Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()) / 864e5; };
   const adStr = n => new Date(n * 864e5).toISOString().slice(0, 10);
-  return { EXPIRY_MONTHS, Y0, Y1, MONTHS, MONTHS_NP, dim, parse, toAD, fromAD, expiry, diff, evaluate, fmt, toDev, todayDayNum, adStr };
+  return { EXPIRY_MONTHS, addMonths, Y0, Y1, MONTHS, MONTHS_NP, dim, parse, toAD, fromAD, expiry, diff, evaluate, fmt, toDev, todayDayNum, adStr };
 })();
 if (typeof module !== "undefined") module.exports = BS;

@@ -14,11 +14,23 @@ const ST_HINT = {
   ALL: "Every registered case, soonest expiry first."
 };
 const ST_COLOR = { RED: "#d92d20", YELLOW: "#f5a524", GREEN: "#12a150", OVERDUE: "#7a0916", CHECK: "#8a90a0" };
-const ROUTES = { dashboard: "Dashboard", red: "RED", yellow: "YELLOW", green: "GREEN", overdue: "OVERDUE", check: "CHECK", all: "ALL", import: "Import", changes: "Changes", help: "Help" };
+// ---- cheque bounce (banking offence): a case must be registered within 1 BS year of the cheque bounce date
+const BOUNCE_DEFAULT = "चेक बाउन्स मिति";
+const BOUNCE_RE = /बाउन्स|बाउन्श|बाउंस|अनादर|bounce|dishono/i;
+const BOUNCE_COMPUTED = ["Bounce 1-Year Limit (BS)", "Bounce 1-Year Limit (AD)", "Bounce Check"];
+const BN = {
+  OK: { label: "Within 1 year", short: "Within 1 yr", cls: "b-OK" },
+  LATE: { label: "Beyond 1 year of bounce", short: "Beyond 1 yr", cls: "b-LATE" },
+  ORDER: { label: "Darta Miti is before the bounce date", short: "Check dates", cls: "b-WARN" },
+  BAD: { label: "Bounce date cannot be read", short: "Check bounce", cls: "b-WARN" },
+  NODARTA: { label: "Darta Miti cannot be read", short: "Check Darta", cls: "b-WARN" },
+  NONE: { label: "No cheque bounce date", short: "No bounce date", cls: "b-NONE" }
+};
+const ROUTES = { dashboard: "Dashboard", red: "RED", yellow: "YELLOW", green: "GREEN", overdue: "OVERDUE", check: "CHECK", all: "ALL", import: "Import", changes: "Changes", help: "Help", bounce: "BOUNCE" };
 const WEEK = ["आइत", "सोम", "मंगल", "बुध", "बिहि", "शुक्र", "शनि"];
 const WEEK_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-const S = { headers: [], dartaCol: "", cases: [], fileName: "", loaded: false, changes: [], dirty: 0, ev: [], counts: {}, q: "", sort: null, month: "", chart: {} };
+const S = { bounceCol: "", headers: [], dartaCol: "", cases: [], fileName: "", loaded: false, changes: [], dirty: 0, ev: [], counts: {}, q: "", sort: null, month: "", chart: {} };
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const clean = v => (v === null || v === undefined) ? "" : String(v).trim();
@@ -60,9 +72,41 @@ const colDef = () => S.headers.find(h => h.includes("प्रतिवादी
 const colPhone = () => S.headers.find(h => h.includes("सम्पर्क")) || "";
 const dateOf = c => clean(c.corr) || clean(c.f[S.dartaCol]);
 const serialNum = c => { const n = parseFloat(clean(c.f[colSerial()]).replace(/[०-९]/g, ch => "०१२३४५६७८९".indexOf(ch))); return isNaN(n) ? 1e9 : n; };
+const guessBounce = hs => hs.find(h => BOUNCE_RE.test(h)) || "";
+// returns null (empty), undefined (unreadable) or a BS date; AD dates (years 1990–2059, e.g. from Excel date cells) are converted to BS
+function parseBounce(raw) {
+  const s = clean(raw); if (!s) return null;
+  const a = s.replace(/[०-९]/g, ch => "०१२३४५६७८९".indexOf(ch)).match(/^(\d{4})\D+(\d{1,2})\D+(\d{1,2})\s*$/);
+  if (a && +a[1] >= 1990 && +a[1] < 2060) {
+    const dt = new Date(Date.UTC(+a[1], +a[2] - 1, +a[3]));
+    return dt.getUTCMonth() === +a[2] - 1 && dt.getUTCDate() === +a[3] ? BS.fromAD(dt / 864e5) : undefined;
+  }
+  const b = BS.parse(s); return b && b.y <= BS.Y1 - 2 ? b : undefined;
+}
+function bounceOf(c, r) {
+  if (!S.bounceCol) return { st: "NONE" };
+  const raw = clean(c.f[S.bounceCol]), b = parseBounce(raw);
+  if (b === null) return { st: "NONE" };
+  if (b === undefined) return { st: "BAD", raw };
+  const lim = BS.addMonths(b, 12), limAD = BS.toAD(lim), bAD = BS.toAD(b);
+  const out = { st: "OK", b, lim, limAD, raw, left: limAD - today() };
+  if (!r || !r.darta) { out.st = "NODARTA"; return out; }
+  const dAD = BS.toAD(r.darta);
+  out.gap = dAD - bAD;
+  if (dAD < bAD) out.st = "ORDER";
+  else { out.gapMD = BS.diff(b, r.darta); out.st = dAD > limAD ? "LATE" : "OK"; out.lateBy = dAD - limAD; }
+  return out;
+}
+const gapText = x => x.gapMD ? [x.gapMD.months ? `${x.gapMD.months} ${x.gapMD.months === 1 ? "month" : "months"}` : "", x.gapMD.days || !x.gapMD.months ? `${x.gapMD.days} ${x.gapMD.days === 1 ? "day" : "days"}` : ""].filter(Boolean).join(" ") : "";
+function bouncePill(x) {
+  const k = BN[x.st];
+  const tip = x.st === "OK" || x.st === "LATE" ? `Bounce ${BS.fmt(x.b)} · 1-year limit ${BS.fmt(x.lim)} · registered ${gapText(x)} after bounce` : k.label;
+  return `<span class="bpill ${k.cls}" title="${esc(tip)}">${k.short}</span>`;
+}
 function evaluate() {
   const t = today();
-  S.ev = S.cases.map(c => ({ c, r: BS.evaluate(dateOf(c), t) }));
+  S.ev = S.cases.map(c => { const r = BS.evaluate(dateOf(c), t); return { c, r, b: bounceOf(c, r) }; });
+  S.bc = { OK: 0, LATE: 0, ORDER: 0, BAD: 0, NODARTA: 0, NONE: 0 }; S.ev.forEach(x => S.bc[x.b.st]++);
   S.counts = { ALL: S.ev.length }; ST.forEach(s => (S.counts[s] = 0)); S.ev.forEach(x => S.counts[x.r.status]++);
   S.within = d => S.ev.filter(x => x.r.total !== undefined && x.r.total >= 0 && x.r.total <= d).length;
 }
@@ -87,6 +131,8 @@ function renderShell() {
     ${item("green", "Green · normal", dot("GREEN"), n.GREEN)}
     ${item("overdue", "Overdue", dot("OVERDUE"), n.OVERDUE, true)}
     ${n.CHECK ? item("check", "Check date", dot("CHECK"), n.CHECK, true) : ""}
+    <div class="navgroup">Cheque bounce</div>
+    ${item("bounce", "1-year check", ic("alert"), S.bc.LATE + S.bc.ORDER + S.bc.BAD + S.bc.NODARTA || (S.bounceCol ? S.bc.OK : undefined), S.bc.LATE > 0)}
     <div class="navgroup">Excel</div>
     ${item("import", "Upload Excel", ic("file"))}
     <a href="#" data-act="download">${ic("dl")}Download Excel${S.dirty ? `<span class="badge hot">${S.dirty}</span>` : ""}</a>
@@ -110,6 +156,7 @@ function render() {
   else if (["red", "yellow", "green", "overdue", "check", "all"].includes(r)) el.innerHTML = listView(ROUTES[r]);
   else if (r === "import") el.innerHTML = importView();
   else if (r === "changes") el.innerHTML = changesView();
+  else if (r === "bounce") el.innerHTML = bounceView();
   else if (r === "help") el.innerHTML = helpView();
   if (r === "dashboard" && !S.q) drawCharts();
   if (r === "import") wireDrop();
@@ -126,6 +173,12 @@ function ring(x) {
   return `<div class="ring"><svg width="56" height="56" viewBox="0 0 50 50"><circle cx="25" cy="25" r="21" fill="none" stroke="#eef0f4" stroke-width="5"/>
     <circle cx="25" cy="25" r="21" fill="none" stroke="${col}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${C * frac} ${C}"/></svg>
     <b>${total}<small>${total === 1 ? "DAY" : "DAYS"}</small></b></div>`;
+}
+function bounceKpi() {
+  const bc = S.bc, withDate = S.ev.length - bc.NONE;
+  const foot = !S.bounceCol ? "No cheque bounce date column in this file yet"
+    : `${bc.OK} within 1 year · ${bc.NONE} without bounce date${bc.ORDER + bc.BAD + bc.NODARTA ? ` · ${bc.ORDER + bc.BAD + bc.NODARTA} to check` : ""}`;
+  return kpi("k-bnc", "bounce", "Bounce · beyond 1 yr", bc.LATE, "hour", withDate ? bc.LATE / withDate * 100 : 0, foot);
 }
 function dashView() {
   const n = S.counts, all = n.ALL || 1;
@@ -152,6 +205,7 @@ function dashView() {
     ${kpi("k-30", "red", "Expiring ≤ 30 days", red30, "bell", red30 / all * 100, "Next 30 calendar days")}
     ${kpi("k-60", "yellow", "Expiring ≤ 60 days", S.within(60), "cal", S.within(60) / all * 100, "Next 60 calendar days")}
     ${n.CHECK ? kpi("k-chk", "check", "Darta Miti to check", n.CHECK, "edit", n.CHECK / all * 100, "Date could not be read") : ""}
+    ${bounceKpi()}
   </section>
   <section class="grid">
     <div class="panel span-5">
@@ -252,6 +306,7 @@ function listView(status) {
       <td><span class="remain" style="color:${ok ? (r.status === "GREEN" ? "var(--ink)" : ST_COLOR[r.status]) : "var(--muted)"}">${esc(r.label)}</span>
         ${ok ? `<div class="prog" title="${pct.toFixed(0)}% of the 6-month period used"><i style="width:${pct}%;background:${ST_COLOR[r.status]}"></i></div>` : ""}</td>
       <td class="num">${ok ? (ov ? `${-r.total} overdue` : `${r.total} days`) : "–"}</td>
+      <td>${bouncePill(x.b)}</td>
       <td><span class="pill p-${r.status}">${ST_SHORT[r.status]}</span></td></tr>`;
   }).join("");
   const mchips = status !== "CHECK" && months.length > 1 ? `<div class="filters"><button class="fchip ${S.month ? "" : "on"}" data-month="">All months</button>${months.map(k =>
@@ -260,7 +315,7 @@ function listView(status) {
     <div><h1>${title} <span class="sub" style="font-family:var(--body);font-weight:500;color:var(--muted);font-size:1rem">· ${list.length}</span></h1><p>${ST_HINT[status]}</p></div></div>
     <div class="tools"><button class="btn ghost" data-act="print">${ic("print", 16)}Print</button><button class="btn" data-act="download">${ic("dl", 16)}Download Excel</button></div></div>
     ${mchips}
-    ${list.length ? `<div class="tablewrap"><table class="list"><thead><tr><th></th><th><button data-act="sort-serial">${esc(colSerial())}</button></th><th>जाहेरवाला / प्रतिवादी</th><th>Darta Miti (BS)</th><th><button data-act="sort-exp">Expiry</button></th><th>Remaining</th><th>${ov ? "Overdue" : "Total"}</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ${list.length ? `<div class="tablewrap"><table class="list"><thead><tr><th></th><th><button data-act="sort-serial">${esc(colSerial())}</button></th><th>जाहेरवाला / प्रतिवादी</th><th>Darta Miti (BS)</th><th><button data-act="sort-exp">Expiry</button></th><th>Remaining</th><th>${ov ? "Overdue" : "Total"}</th><th title="Registered within 1 year of the cheque bounce date?">Bounce · 1 yr</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`
       : `<div class="panel"><div class="empty">${ic("check", 44, 1.6)}<p>${q ? "No cases match your search." : "No cases in this list right now."}</p></div></div>`}`;
 }
 
@@ -273,11 +328,49 @@ function openDrawer(id) {
     <div class="hero-status ${r.status}"><span style="opacity:.9;font-weight:600">${ST_NAME[r.status]}</span><b>${esc(r.label)}</b>
       ${ok ? `<div class="track"><div class="rail"><i style="width:${pct}%"></i></div><div class="ends"><span>Darta ${BS.fmt(r.darta)}</span><span>${pct.toFixed(0)}% of the period used</span><span>Expiry ${BS.fmt(r.exp)}</span></div></div>
       <span style="font-size:.86rem;opacity:.9">Expiry: ${r.exp.d} ${BS.MONTHS[r.exp.m - 1]} ${r.exp.y} BS · ${WEEK_EN[wd(r.expAD)]}, ${BS.adStr(r.expAD)} AD</span>` : `<span>Edit the case and pick the correct Darta Miti.</span>`}</div>
+    ${bounceBox(bounceOf(c, r))}
     <dl class="kv">${S.headers.map(h => `<dt>${esc(h)}</dt><dd>${esc(c.f[h]) || '<span class="stamp">–</span>'}</dd>`).join("")}</dl>
     ${c.createdAt ? `<div class="stamp">Added in this session at ${esc(c.createdAt)}</div>` : c.updatedAt ? `<div class="stamp">Edited in this session at ${esc(c.updatedAt)}</div>` : ""}
   </div>
   <div class="mf"><button class="btn danger" data-act="del" data-id="${esc(c.id)}">${ic("trash", 16)}Delete</button><button class="btn primary" data-act="edit" data-id="${esc(c.id)}">${ic("edit", 16)}Edit case</button></div>`;
   $("#drawer").classList.add("on"); $("#scrim").classList.add("on");
+}
+function bounceBox(x) {
+  const k = BN[x.st];
+  let body;
+  if (x.st === "OK" || x.st === "LATE") body = `Cheque bounced <b>${BS.fmt(x.b)}</b> · 1-year limit <b>${BS.fmt(x.lim)}</b> (${BS.adStr(x.limAD)} AD)<br>
+    Registered ${gapText(x)} after the bounce${x.st === "LATE" ? ` – <b>${x.lateBy} ${x.lateBy === 1 ? "day" : "days"} after the 1-year limit</b>` : " – within the 1-year limit"}.`;
+  else if (x.st === "ORDER") body = `Cheque bounced <b>${BS.fmt(x.b)}</b>, but the Darta Miti is earlier. One of the two dates is probably wrong.`;
+  else if (x.st === "BAD") body = `“${esc(x.raw)}” is not a valid date. Edit the case and enter it like २०८३।०३।१०.`;
+  else if (x.st === "NODARTA") body = `Bounce ${BS.fmt(x.b)} · 1-year limit ${BS.fmt(x.lim)}. Correct the Darta Miti to complete the check.`;
+  else body = S.bounceCol ? "No cheque bounce date entered for this case. Edit the case to add it." : "This file has no cheque bounce date column. Edit the case to add the date.";
+  return `<div class="bbox ${k.cls}"><div><span class="eyebrow">Cheque bounce · 1-year check</span><b>${k.label}</b></div><p>${body}</p></div>`;
+}
+function bounceView() {
+  const order = { LATE: 0, ORDER: 1, BAD: 2, NODARTA: 3, OK: 4, NONE: 5 };
+  const f = S.bf || "ALL", q = S.q.trim().toLowerCase();
+  let list = S.ev.filter(x => matches(x, q));
+  if (f !== "ALL") list = list.filter(x => f === "CHECKB" ? ["ORDER", "BAD", "NODARTA"].includes(x.b.st) : x.b.st === f);
+  list.sort((a, b) => order[a.b.st] - order[b.b.st] || (a.b.limAD ?? 1e12) - (b.b.limAD ?? 1e12) || serialNum(a.c) - serialNum(b.c));
+  const bc = S.bc, chk = bc.ORDER + bc.BAD + bc.NODARTA;
+  const chips = [["ALL", "All", S.ev.length], ["LATE", "Beyond 1 year", bc.LATE], ["OK", "Within 1 year", bc.OK], ["CHECKB", "Dates to check", chk], ["NONE", "No bounce date", bc.NONE]];
+  const rows = list.map(x => { const b = x.b, ok = b.st === "OK" || b.st === "LATE" || b.st === "NODARTA";
+    return `<tr class="s-${x.r.status}" data-id="${esc(x.c.id)}" tabindex="0"><td class="bar"></td>
+      <td class="num"><b>${esc(x.c.f[colSerial()])}</b></td>
+      <td class="who2"><b>${esc(x.c.f[colName()]) || "–"}</b><span>${esc(x.c.f[colDef()])}</span></td>
+      <td class="date">${b.b ? `<b>${BS.fmt(b.b)}</b><span>cheque bounced</span>` : b.st === "BAD" ? `<b style="color:var(--red-ink)">${esc(b.raw)}</b><span>cannot be read</span>` : "–"}</td>
+      <td class="date">${ok ? `<b>${BS.fmt(b.lim)}</b><span>${BS.adStr(b.limAD)} AD</span>` : "–"}</td>
+      <td class="date">${x.r.darta ? `<b>${BS.fmt(x.r.darta)}</b><span>${b.gapMD ? gapText(b) + " after bounce" : "Darta Miti"}</span>` : `<b style="color:var(--red-ink)">${esc(dateOf(x.c)) || "–"}</b><span>cannot be read</span>`}</td>
+      <td>${bouncePill(b)}${b.st === "LATE" ? `<div class="stamp">${b.lateBy} ${b.lateBy === 1 ? "day" : "days"} late</div>` : ""}</td>
+      <td><span class="pill p-${x.r.status}">${ST_SHORT[x.r.status]}</span></td></tr>`; }).join("");
+  return `<div class="listhead"><div class="title"><span class="chip" style="background:#7a4cc21a;color:#7a4cc2">${ic("alert", 22)}</span>
+    <div><h1>Cheque bounce · 1-year check <span class="sub" style="font-family:var(--body);font-weight:500;color:var(--muted);font-size:1rem">· ${list.length}</span></h1>
+    <p>A banking offence case must be registered within 1 BS year of the cheque bounce date. Cases within the limit follow the 6-month Darta Miti tracking as before.</p></div></div>
+    <div class="tools"><button class="btn ghost" data-act="print">${ic("print", 16)}Print</button><button class="btn" data-act="download">${ic("dl", 16)}Download Excel</button></div></div>
+    ${S.bounceCol ? `<div class="filters">${chips.map(([k, l, nn]) => `<button class="fchip ${f === k ? "on" : ""}" data-bf="${k}">${l} · ${nn}</button>`).join("")}</div>` :
+      `<div class="panel"><div class="msg info">This file has no cheque bounce date column. Add a column named <b>${BOUNCE_DEFAULT}</b> to your Excel (dates like २०८३।०३।१०), or open a case, click <b>Edit</b> and fill the cheque bounce date. The column is added automatically.</div></div>`}
+    ${S.bounceCol ? (list.length ? `<div class="tablewrap"><table class="list"><thead><tr><th></th><th>${esc(colSerial())}</th><th>जाहेरवाला / प्रतिवादी</th><th>Cheque bounce</th><th>1-year limit</th><th>Darta Miti</th><th>Bounce check</th><th>6-month status</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<div class="panel"><div class="empty">${ic("check", 44, 1.6)}<p>No cases in this group.</p></div></div>`) : ""}`;
 }
 function closeAll() { $("#drawer").classList.remove("on"); $("#modal").classList.remove("on"); $("#scrim").classList.remove("on"); }
 
@@ -289,7 +382,10 @@ function openForm(id) {
   const val = h => c ? clean(c.f[h]) : (h === colSerial() ? String(maxSerial + 1) : "");
   const sel = (c && BS.parse(dateOf(c))) || t;
   const F = { y: sel.y, m: sel.m, d: sel.d, raw: c ? dateOf(c) : BS.fmt(t) };
-  const fields = S.headers.filter(h => h !== S.dartaCol).map((h, i) => `<div class="field ${h.length > 26 ? "wide" : ""}"><label for="f${i}">${esc(h)}</label><input id="f${i}" data-h="${esc(h)}" value="${esc(val(h))}" autocomplete="off"></div>`).join("");
+  const bcol = S.bounceCol || BOUNCE_DEFAULT;
+  const bField = (h, i) => `<div class="field wide bfield"><label for="f${i}">${esc(h)} – cheque bounce date (BS, optional)</label><input id="f${i}" data-h="${esc(h)}" data-bounce="1" value="${esc(val(h))}" placeholder="२०८३।०३।१० or 2083-03-10" autocomplete="off"><span class="stamp" id="bhint"></span></div>`;
+  const fields = (S.bounceCol ? "" : bField(bcol, "b")) + S.headers.filter(h => h !== S.dartaCol).map((h, i) => h === S.bounceCol ? bField(h, i) : `<div class="field ${h.length > 26 ? "wide" : ""}"><label for="f${i}">${esc(h)}</label><input id="f${i}" data-h="${esc(h)}" value="${esc(val(h))}" autocomplete="off"></div>`)
+    .sort((a, b) => b.includes("bfield") - a.includes("bfield")).join("");
   $("#modal").innerHTML = `<form id="cf" novalidate style="display:contents">
     <div class="mh"><h2>${c ? `Edit case ${esc(c.f[colSerial()])}` : "Register a new case"}</h2><button type="button" class="x" data-act="close" aria-label="Close">${ic("x", 16)}</button></div>
     <div class="mb">
@@ -323,7 +419,16 @@ function openForm(id) {
     $("#cm").onchange = e => { F.m = +e.target.value; F.d = Math.min(F.d, BS.dim(F.y, F.m)); pick(); };
     $("#cy").onchange = e => { F.y = +e.target.value; F.d = Math.min(F.d, BS.dim(F.y, F.m)); pick(); };
   };
+  const bHint = () => {
+    const bi = $("#cf input[data-bounce]"), el = $("#bhint"); if (!bi || !el) return;
+    const v = bi.value.trim(); if (!v) { el.innerHTML = "Leave empty if there is no cheque bounce date."; return; }
+    const saved = S.bounceCol; S.bounceCol = bi.dataset.h;
+    const x = bounceOf({ f: { [bi.dataset.h]: v } }, BS.evaluate(raw.value, today())); S.bounceCol = saved;
+    el.innerHTML = x.st === "BAD" ? `<span style="color:var(--red-ink)">Not a valid date yet.</span>` :
+      `${bouncePill(x)} 1-year limit <b>${BS.fmt(x.lim)}</b> (${BS.adStr(x.limAD)} AD)${x.gapMD ? ` · Darta Miti is ${gapText(x)} after the bounce` : ""}`;
+  };
   const preview = () => {
+    bHint();
     const r = BS.evaluate(raw.value, today()), pv = $("#pv");
     pv.className = "preview " + r.status;
     pv.innerHTML = r.status === "CHECK" ? `<span class="big">Not a valid BS date yet</span><span>Pick a day on the calendar.</span>` :
@@ -338,6 +443,7 @@ function openForm(id) {
   });
   raw.oninput = () => { const b = BS.parse(raw.value); if (b) { Object.assign(F, b); drawCal(); } preview(); };
   drawCal(); preview();
+  const bIn = $("#cf input[data-bounce]"); if (bIn) bIn.oninput = bHint;
   setTimeout(() => { const f = $(`#cf input[data-h]:not([data-h="${CSS.escape(colSerial())}"])`); f && f.focus(); }, 60);
   $("#cf").onsubmit = async e => {
     e.preventDefault(); await submitForm(c, false);
@@ -354,6 +460,9 @@ async function submitForm(c, force) {
   f[S.dartaCol] = $("#draw").value.trim();
   const msg = $("#formMsg"); msg.innerHTML = "";
   if (!BS.parse(f[S.dartaCol])) { msg.innerHTML = `<div class="msg">Pick a valid Darta Miti on the calendar before saving.</div>`; return; }
+  const bh = (document.querySelector("#cf input[data-bounce]") || {}).dataset?.h;
+  if (bh && f[bh] && parseBounce(f[bh]) === undefined) { msg.innerHTML = `<div class="msg">The cheque bounce date “${esc(f[bh])}” is not a valid date. Enter it like २०८३।०३।१० or leave it empty.</div>`; return; }
+  if (bh && !S.bounceCol) { if (f[bh]) { S.bounceCol = bh; if (!S.headers.includes(bh)) S.headers.push(bh); } else delete f[bh]; }
   const ser = colSerial(), others = S.cases.filter(x => x !== c);
   if (!f[ser]) f[ser] = String(Math.max(0, ...S.cases.map(serialNum).filter(n => n < 1e9)) + 1);
   if (others.some(x => clean(x.f[ser]) === f[ser])) { msg.innerHTML = `<div class="msg">${esc(ser)} ${esc(f[ser])} is already used by another case. Use a different number.</div>`; return; }
@@ -386,7 +495,7 @@ function doDelete(id) {
 // ------------------------------------------------------------- reading Excel (in the browser)
 const DEFAULT_HEADERS = ["सि.न.", "मुद्धा शिर्षक", "जाहेरवालाको नामथर", "जाहेरवालाको वतन", "सम्पर्क नम्वर", "प्रतिवादी नामथर",
   "प्रतिवादीको वतन", "सम्पर्क नं.", "लिङ्ग", "जाहेरीको रकम", "जाहेरीको मिति", "दर्ता मिती", "प्रहरी कारबाही", "मुद्दा दर्ता मिति"];
-const COMPUTED = new Set(["Darta Miti (BS)", "Expiry Date (BS)", "Expiry Date (AD)", "Remaining Months", "Remaining Days", "Total Remaining Days",
+const COMPUTED = new Set([...BOUNCE_COMPUTED, "Darta Miti (BS)", "Expiry Date (BS)", "Expiry Date (AD)", "Remaining Months", "Remaining Days", "Total Remaining Days",
   "Remaining Time", "Expiry Status", "Days Overdue", "Overdue Status", "#", "Status", "Entered By", "Entered On", "Last Edited By", "Last Edited On"]);
 const CORR = "Darta Miti Correction (optional)";
 function cellText(cell) {
@@ -490,25 +599,31 @@ async function importFile(file) {
   const has = S.loaded && S.cases.length, ser = p.headers[0];
   const keys = new Set(S.cases.map(c => clean(c.f[colSerial()])));
   const upd = has ? p.rows.filter(r => clean(r.f[ser]) && keys.has(clean(r.f[ser]))).length : 0;
-  const draw = darta => {
+  const draw = (darta, bounce) => {
     const ok = p.rows.filter(r => BS.parse(clean(r.corr) || r.f[darta])).length;
+    const bVals = bounce ? p.rows.map(r => parseBounce(r.f[bounce])) : [];
+    const bOk = bVals.filter(v => v).length, bBad = bVals.filter(v => v === undefined).length;
     showModal(`<div class="mh"><h2>Load ${p.rows.length} cases</h2><button class="x" data-act="close">${ic("x", 16)}</button></div>
     <div class="mb"><p style="margin:0">Sheet <b>${esc(p.sheet)}</b> of ${esc(file.name)} · ${p.headers.length} columns.</p>
       <div class="field"><label for="impD">Column with the Darta Miti (BS)</label><select id="impD">${p.headers.map(h => `<option ${h === darta ? "selected" : ""}>${esc(h)}</option>`).join("")}</select></div>
       <div class="msg ${ok === p.rows.length ? "info" : ""}">${ok} of ${p.rows.length} dates read as valid BS dates.${ok < p.rows.length ? ` The other ${p.rows.length - ok} will appear under “Check date” so you can correct them.` : ""}</div>
+      <div class="field"><label for="impB">Column with the cheque bounce date (for the 1-year check)</label><select id="impB"><option value="">— none in this file —</option>${p.headers.filter(h => h !== darta).map(h => `<option ${h === bounce ? "selected" : ""}>${esc(h)}</option>`).join("")}</select></div>
+      ${bounce ? `<div class="msg info">${bOk} cheque bounce dates found${bBad ? `, ${bBad} cannot be read` : ""}; ${p.rows.length - bOk - bBad} cases have no bounce date.</div>` : ""}
       ${has ? `<div class="choice"><label><input type="radio" name="mode" value="merge" checked><span><b>Merge into the open register</b> – match by ${esc(ser)}: ${upd} updated, ${p.rows.length - upd} added.</span></label>
       <label><input type="radio" name="mode" value="replace"><span><b>Open this file instead</b> – close the ${S.cases.length} cases open now${S.dirty ? ` (${S.dirty} unsaved changes will be lost)` : ""}.</span></label></div>` : ""}
     </div><div class="mf"><button class="btn" data-act="close">Cancel</button><button class="btn primary" id="impGo">Load cases</button></div>`);
-    $("#impD").onchange = e => draw(e.target.value);
+    $("#impD").onchange = e => draw(e.target.value, bounce === e.target.value ? "" : bounce);
+    $("#impB").onchange = e => draw(darta, e.target.value);
     $("#impGo").onclick = () => {
       const mode = (document.querySelector("input[name=mode]:checked") || { value: "replace" }).value;
       if (mode === "replace") {
-        Object.assign(S, { headers: p.headers.slice(), dartaCol: darta, fileName: file.name, loaded: true, changes: [], dirty: 0 });
+        Object.assign(S, { headers: p.headers.slice(), dartaCol: darta, bounceCol: bounce || "", fileName: file.name, loaded: true, changes: [], dirty: 0 });
         S.cases = p.rows.map((r, i) => ({ id: uid() + i, f: r.f, corr: r.corr }));
         toast(`${S.cases.length} cases loaded from ${file.name}.`, 3500);
       } else {
         const map = h => (h === darta ? S.dartaCol : h);
         for (const h of p.headers) if (!S.headers.includes(map(h))) S.headers.push(map(h));
+        if (!S.bounceCol && bounce) S.bounceCol = map(bounce);
         const by = new Map(S.cases.map(c => [clean(c.f[colSerial()]), c])); let a = 0, u = 0;
         for (const r of p.rows) {
           const f = {}; for (const h of p.headers) f[map(h)] = r.f[h];
@@ -521,11 +636,11 @@ async function importFile(file) {
       closeAll(); location.hash = "dashboard"; render();
     };
   };
-  draw(guessDarta(p.headers));
+  const gd = guessDarta(p.headers); draw(gd, guessBounce(p.headers.filter(h => h !== gd)));
 }
 function showModal(html) { $("#modal").innerHTML = html; $("#modal").classList.add("on"); $("#scrim").classList.add("on"); }
 function startBlank() {
-  Object.assign(S, { headers: DEFAULT_HEADERS.slice(), dartaCol: "दर्ता मिती", cases: [], fileName: "New register", loaded: true, changes: [], dirty: 0 });
+  Object.assign(S, { headers: DEFAULT_HEADERS.slice(), dartaCol: "दर्ता मिती", bounceCol: "", cases: [], fileName: "New register", loaded: true, changes: [], dirty: 0 });
   render(); openForm(null);
 }
 
@@ -541,7 +656,7 @@ async function downloadExcel() {
   const thin = { style: "thin", color: { argb: "FFC9CED6" } }, border = { top: thin, left: thin, bottom: thin, right: thin };
   const DEV = "Kokila", LAT = "Arial";
   const isDev = s => /[ऀ-ॿ]/.test(String(s));
-  const theme = { RED: ["#B3261E", "#FDECEA"], YELLOW: ["#B07A00", "#FFF6DA"], GREEN: ["#1E6B35", "#E8F5EC"], OVERDUE: ["#5E0B0B", "#F4E3E3"], CHECK: ["#4A4F58", "#EEEFF2"], MASTER: ["#14213D", "#EEF1F7"] };
+  const theme = { RED: ["#B3261E", "#FDECEA"], YELLOW: ["#B07A00", "#FFF6DA"], GREEN: ["#1E6B35", "#E8F5EC"], OVERDUE: ["#5E0B0B", "#F4E3E3"], CHECK: ["#4A4F58", "#EEEFF2"], BOUNCE: ["#5B2E9E", "#F1EAFB"], MASTER: ["#14213D", "#EEF1F7"] };
   const adDate = dn => { const d = new Date(dn * 864e5); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); };
   // dashboard
   const d = wb.addWorksheet("DASHBOARD", { properties: { tabColor: { argb: argb("#14213D") } }, views: [{ showGridLines: false }] });
@@ -552,6 +667,9 @@ async function downloadExcel() {
   const rows = [["Total registered cases", ev.length, "#14213D"], ["RED – 1 month or less", n.RED, "#B3261E"], ["YELLOW – 1 to 2 months", n.YELLOW, "#B07A00"],
     ["GREEN – more than 2 months", n.GREEN, "#1E6B35"], ["OVERDUE – expired", n.OVERDUE, "#5E0B0B"], ["Expiring within 30 days", within(30), "#C2410C"],
     ["Expiring within 60 days", within(60), "#1D4ED8"], ["Darta Miti to check", n.CHECK, "#4A4F58"]];
+  const bxs = ev.map(x => bounceOf(x.c, x.r)), bcount = s => bxs.filter(b => b.st === s).length;
+  if (S.bounceCol) rows.push(["Cheque bounce: registered within 1 year", bcount("OK"), "#1E6B35"], ["Cheque bounce: BEYOND 1 year", bcount("LATE"), "#7A4CC2"],
+    ["Cheque bounce: dates to check", bcount("ORDER") + bcount("BAD") + bcount("NODARTA"), "#4A4F58"], ["Cheque bounce: no bounce date", bcount("NONE"), "#8A90A0"]);
   const max = Math.max(1, ...rows.slice(1, 5).map(r => r[1]));
   rows.forEach(([k, v, col], i) => {
     const r = 5 + i;
@@ -561,12 +679,14 @@ async function downloadExcel() {
   });
   ["How to read this file:", "• Expiry = the same BS day, 6 BS months after the Darta Miti (last day of the month if that day does not exist).",
    "• Remaining time is calculated for the date shown above. Upload this file again on any day to see the current position.",
+   ...(S.bounceCol ? ["• Cheque bounce check: a case must be registered within 1 BS year of the cheque bounce date (column “" + S.bounceCol + "”)."] : []),
    "• BS month lengths for 2084 and later are projected until the official Panchanga is published."].forEach((t, i) =>
-    Object.assign(d.getCell(15 + i, 2), { value: t, font: { name: LAT, size: 10, bold: i === 0, color: { argb: argb("#5D6676") } } }));
+    Object.assign(d.getCell(7 + rows.length + i, 2), { value: t, font: { name: LAT, size: 10, bold: i === 0, color: { argb: argb("#5D6676") } } }));
   // case sheets
   const sheet = (name, th, list, overdue, title) => {
     const [dark, light] = theme[th];
-    const extra = ["Darta Miti (BS)", "Expiry Date (BS)", "Expiry Date (AD)", ...(overdue ? ["Days Overdue"] : ["Remaining Months", "Remaining Days", "Total Remaining Days"]), "Remaining Time", "Expiry Status"];
+    const extra = ["Darta Miti (BS)", "Expiry Date (BS)", "Expiry Date (AD)", ...(overdue ? ["Days Overdue"] : ["Remaining Months", "Remaining Days", "Total Remaining Days"]), "Remaining Time", "Expiry Status", ...(S.bounceCol ? BOUNCE_COMPUTED : [])];
+    const stIdx = hs.length + extra.indexOf("Expiry Status") + 1;
     const cols = [...hs, ...extra];
     const ws = wb.addWorksheet(name, { properties: { tabColor: { argb: argb(dark) } }, views: [{ state: "frozen", xSplit: 2, ySplit: 4 }] });
     Object.assign(ws.getCell(1, 1), { value: title, font: { name: LAT, size: 14, bold: true, color: { argb: argb(dark) } } });
@@ -578,6 +698,8 @@ async function downloadExcel() {
       const r = x.r, ok = r.status !== "CHECK";
       const vals = [...hs.map(h => x.c.f[h] ?? ""), ok ? BS.fmt(r.darta) : "INVALID: " + dateOf(x.c), ok ? BS.fmt(r.exp) : "", ok ? adDate(r.expAD) : "",
         ...(overdue ? [-r.total] : ok ? [r.months, r.days, r.total] : ["", "", ""]), r.label, r.status === "CHECK" ? "CHECK DATE" : r.status];
+      if (S.bounceCol) { const bx = bounceOf(x.c, r), has = bx.lim !== undefined;
+        vals.push(has ? BS.fmt(bx.lim) : "", has ? adDate(bx.limAD) : "", bx.st === "LATE" ? `BEYOND 1 YEAR (${bx.lateBy} days late)` : bx.st === "OK" ? "Within 1 year" : BN[bx.st].label); }
       vals.forEach((v, j) => {
         const cell = ws.getCell(5 + i, j + 1);
         cell.value = /^\d{1,15}$/.test(v) && j < hs.length && !/^0\d/.test(v) ? Number(v) : v;
@@ -586,7 +708,7 @@ async function downloadExcel() {
         if (i % 2) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(light) } };
         if (v instanceof Date) cell.numFmt = "dd-mmm-yyyy";
       });
-      Object.assign(ws.getCell(5 + i, cols.length), { font: { name: LAT, size: 10, bold: true, color: { argb: "FFFFFFFF" } }, fill: { type: "pattern", pattern: "solid", fgColor: { argb: argb((theme[r.status] || theme.CHECK)[0]) } } });
+      Object.assign(ws.getCell(5 + i, stIdx), { font: { name: LAT, size: 10, bold: true, color: { argb: "FFFFFFFF" } }, fill: { type: "pattern", pattern: "solid", fgColor: { argb: argb((theme[r.status] || theme.CHECK)[0]) } } });
     });
     cols.forEach((h, j) => { let L = String(h).length; list.slice(0, 60).forEach((x, i) => { const v = ws.getCell(5 + i, j + 1).value; L = Math.max(L, v instanceof Date ? 11 : String(v ?? "").length); });
       ws.getColumn(j + 1).width = Math.max(8, Math.min(38, L * (j < hs.length ? 0.9 : 1) + 2)); });
@@ -598,6 +720,8 @@ async function downloadExcel() {
   sheet("GREEN - NORMAL", "GREEN", by("GREEN"), false, "GREEN – NORMAL CASES (more than 2 months)");
   sheet("OVERDUE - EXPIRED", "OVERDUE", by("OVERDUE"), true, "OVERDUE – EXPIRED CASES");
   if (n.CHECK) sheet("CHECK DATE", "CHECK", by("CHECK"), false, "DARTA MITI COULD NOT BE READ – correct these");
+  const late = ev.filter(x => bounceOf(x.c, x.r).st === "LATE");
+  if (late.length) sheet("BOUNCE - BEYOND 1 YEAR", "BOUNCE", late, false, "REGISTERED MORE THAN 1 YEAR AFTER THE CHEQUE BOUNCE DATE");
   sheet("MASTER DATA", "MASTER", ev.slice().sort((a, b) => serialNum(a.c) - serialNum(b.c)), false, "MASTER DATA – all registered cases");
   const buf = await wb.xlsx.writeBuffer();
   const a = document.createElement("a");
@@ -635,12 +759,18 @@ function helpView() {
       <li>If that day does not exist in the expiry month (e.g. day 32 when that month has only 30 days), the last day of that month is used.</li>
       <li><b>Red</b>: 1 month or less (incl. expiry day) · <b>Yellow</b>: more than 1, up to 2 months · <b>Green</b>: more than 2 months · <b>Overdue</b>: expiry passed.</li>
       <li>BS month lengths for 2084 onward are projected until the official Panchanga is published.</li></ul></div>
+    <div class="panel"><div class="panel-h"><h2>Cheque bounce · 1-year check</h2></div><ul class="steps">
+      <li>A banking offence (cheque bounce) case must be registered within 1 BS year of the cheque bounce date. Limit = the same BS day and month one year later.</li>
+      <li><b>Within 1 year</b>: the Darta Miti is on or before the limit. The 6-month tracking above applies as usual.</li>
+      <li><b>Beyond 1 year</b>: the Darta Miti is after the limit. These are listed under “1-year check” and in a separate Excel sheet.</li>
+      <li>The column is found by its name (बाउन्स, अनादर or “bounce”), e.g. <b>${BOUNCE_DEFAULT}</b>. Dates in BS (२०८३।०३।१०) or AD Excel dates both work.</li></ul></div>
   </section>`;
 }
 
 // ------------------------------------------------------------- events
 document.addEventListener("click", e => {
   const m = e.target.closest("[data-month]"); if (m) { S.month = m.dataset.month; render(); return; }
+  const bfc = e.target.closest("[data-bf]"); if (bfc) { S.bf = bfc.dataset.bf; render(); return; }
   const a = e.target.closest("[data-act]");
   if (a) {
     const act = a.dataset.act;
@@ -666,7 +796,7 @@ $("#scrim").onclick = closeAll;
 $("#addBtn").onclick = () => { if (!S.loaded) startBlank(); else openForm(null); };
 $("#dlBtn").onclick = () => downloadExcel().catch(er => toast("Could not create the Excel: " + er.message, 5000));
 $("#q").oninput = e => { S.q = e.target.value; const r = route(); if (["import", "changes", "help"].includes(r)) location.hash = "all"; else render(); };
-window.addEventListener("hashchange", () => { S.month = ""; S.sort = null; if (!["all", "red", "yellow", "green", "overdue", "check", "dashboard"].includes(route())) { S.q = ""; $("#q").value = ""; } closeAll(); render(); window.scrollTo(0, 0); });
+window.addEventListener("hashchange", () => { S.month = ""; S.sort = null; S.bf = "ALL"; if (!["all", "red", "yellow", "green", "overdue", "check", "dashboard", "bounce"].includes(route())) { S.q = ""; $("#q").value = ""; } closeAll(); render(); window.scrollTo(0, 0); });
 window.addEventListener("beforeunload", e => { if (S.dirty) { e.preventDefault(); e.returnValue = ""; } });
 let lastDay = today(); setInterval(() => { if (today() !== lastDay) { lastDay = today(); render(); } }, 60000);
 render();
