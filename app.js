@@ -117,7 +117,7 @@ function render() {
 
 // ------------------------------------------------------------- dashboard
 function kpi(cls, href, label, val, icon, pct, foot) {
-  return `<a class="kpi ${cls}" href="#${href}"><div class="top"><span class="lbl">${label}</span><span class="icon">${ic(icon, 18)}</span></div>
+  return `<a class="kpi ${cls}" href="#${href}"><span class="wm">${ic(icon, 104, 1.3)}</span><div class="top"><span class="lbl">${label}</span><span class="icon">${ic(icon, 18)}</span></div>
     <div class="val">${fmtNum(val)}</div><div class="meter"><i style="width:${Math.max(val ? 3 : 0, pct)}%"></i></div><div class="foot">${foot}</div></a>`;
 }
 function ring(x) {
@@ -132,9 +132,14 @@ function dashView() {
   if (!S.cases.length) return `<section class="panel"><div class="empty">${ic("folder", 48, 1.5)}<h2>No cases yet</h2><p>Register the first case with “New case”.</p></div></section>`;
   const red30 = S.within(30);
   const urgent = n.RED + n.OVERDUE;
-  const ribbon = urgent
-    ? `<div class="ribbon"><span class="pulse">${ic("bell", 20, 2.2)}</span><p><b>${n.RED} ${n.RED === 1 ? "case expires" : "cases expire"} within a month</b>${n.OVERDUE ? ` and <b>${n.OVERDUE} ${n.OVERDUE === 1 ? "is" : "are"} already overdue</b>` : ""}. <a href="#red">Open the Red list</a>${n.OVERDUE ? ` · <a href="#overdue">Overdue list</a>` : ""}</p></div>`
-    : `<div class="ribbon calm"><span class="pulse">${ic("check", 20, 2.6)}</span><p><b>No case expires within the next month.</b> The next expiry is ${nextExpiryText()}.</p></div>`;
+  const chip = (s, href) => `<a class="hchip" href="#${href}"><i style="background:${ST_COLOR[s]}"></i><b>${n[s]}</b><span>${ST_SHORT[s]}</span></a>`;
+  const ribbon = `<section class="hero ${urgent ? "alert" : "calm"}">
+    <div class="hero-main"><span class="hero-ic">${ic(urgent ? "bell" : "check", 26, 2.2)}</span>
+      <div><div class="eyebrow">आजको स्थिति · Today's position</div>
+        <h2>${urgent ? `${n.RED} ${n.RED === 1 ? "case expires" : "cases expire"} within a month${n.OVERDUE ? ` · ${n.OVERDUE} overdue` : ""}` : "No case expires within the next month"}</h2>
+        <p>${urgent ? `<a href="#red">Open the Red list</a>${n.OVERDUE ? ` · <a href="#overdue">Overdue list</a>` : ""}` : `Next expiry: ${nextExpiryText()}`} · ${fmtNum(n.ALL)} cases in ${esc(S.fileName || "this register")}</p></div></div>
+    <div class="hero-chips">${chip("RED", "red")}${chip("YELLOW", "yellow")}${chip("GREEN", "green")}${chip("OVERDUE", "overdue")}</div>
+  </section>`;
   const t = BS.fromAD(today());
   const next = S.ev.filter(x => ["RED", "YELLOW", "GREEN"].includes(x.r.status)).sort(byExpiry).slice(0, 8);
   return `${ribbon}
@@ -150,26 +155,26 @@ function dashView() {
   </section>
   <section class="grid">
     <div class="panel span-5">
-      <div class="panel-h"><h2>Status of all cases</h2><span class="sub">tap a row to open the list</span></div>
+      <div class="panel-h"><h2><span class="tic" style="--c:#2546b8">${ic("grid", 16, 2.2)}</span>Status of all cases</h2><span class="sub">tap a row to open the list</span></div>
       <div class="donutwrap"><div class="chartbox"><canvas id="cDonut" aria-label="Cases by status"></canvas><div class="donut-center"><div><b>${fmtNum(n.ALL)}</b><span>cases</span></div></div></div>
       <div class="legend">${ST.filter(s => s !== "CHECK" || n.CHECK).map(s => `<a href="#${s.toLowerCase()}"><i style="background:${ST_COLOR[s]}"></i><span>${ST_SHORT[s]}</span><b>${n[s]}</b><em>${(n[s] / all * 100).toFixed(1)}%</em></a>`).join("")}</div></div>
     </div>
     <div class="panel span-7">
-      <div class="panel-h"><h2>Expiries in the next 12 BS months</h2><span class="sub">cases reaching their one-year date each month</span></div>
+      <div class="panel-h"><h2><span class="tic" style="--c:#7a4cc2">${ic("cal", 16, 2.2)}</span>Expiries in the next 12 BS months</h2><span class="sub">cases reaching their one-year date each month</span></div>
       <div class="chartbox"><canvas id="cMonths" aria-label="Expiries per BS month"></canvas></div>
     </div>
     <div class="panel span-12">
-      <div class="panel-h"><h2>Next 60 days at a glance</h2><span class="sub">each block is one day · darker = more cases expiring that day</span></div>
+      <div class="panel-h"><h2><span class="tic" style="--c:#ea580c">${ic("clock", 16, 2.2)}</span>Next 60 days at a glance</h2><span class="sub">each block is one day · darker = more cases expiring that day</span></div>
       ${timeline()}
     </div>
     <div class="panel span-7">
-      <div class="panel-h"><h2>Next cases to expire</h2><a class="sub" href="#all">see all →</a></div>
+      <div class="panel-h"><h2><span class="tic" style="--c:#d92d20">${ic("hour", 16, 2.2)}</span>Next cases to expire</h2><a class="sub" href="#all">see all →</a></div>
       <div class="nextlist">${next.map(x => `<div class="nx" data-id="${esc(x.c.id)}">${ring(x)}
         <div><div class="who">${esc(x.c.f[colName()]) || "–"}</div><div class="meta">${esc(colSerial())} ${esc(x.c.f[colSerial()])} · expires ${BS.fmt(x.r.exp)} · ${esc(x.r.label)}</div></div>
         <span class="pill p-${x.r.status}">${ST_SHORT[x.r.status]}</span></div>`).join("") || `<div class="empty">No upcoming expiries.</div>`}</div>
     </div>
     <div class="panel span-5">
-      <div class="panel-h"><h2>New registrations</h2><span class="sub">cases by Darta Miti month</span></div>
+      <div class="panel-h"><h2><span class="tic" style="--c:#12a150">${ic("up", 16, 2.2)}</span>New registrations</h2><span class="sub">cases by Darta Miti month</span></div>
       <div class="chartbox" style="height:210px"><canvas id="cIntake" aria-label="Registrations per month"></canvas></div>
       <div class="panel-h" style="margin:18px 0 6px"><h2>Changes this session</h2><a class="sub" href="#changes">all →</a></div>
       <div class="feed">${feedHTML(5)}</div>
@@ -432,17 +437,29 @@ function parseWorkbook(wb) {
   found.sort((a, b) => (b.sheet === "MASTER DATA") - (a.sheet === "MASTER DATA") || b.rows.length - a.rows.length);
   return found[0] || null;
 }
+function startArt() {
+  const rows = [["#d92d20", 70], ["#f5a524", 110], ["#12a150", 140], ["#12a150", 90], ["#7a0916", 60]];
+  return `<svg width="230" height="150" viewBox="0 0 230 150" aria-hidden="true">
+    <rect x="30" y="14" width="170" height="126" rx="14" fill="#fff" stroke="#d9def0"/>
+    <rect x="30" y="14" width="170" height="30" rx="14" fill="#2546b8"/><rect x="30" y="30" width="170" height="14" fill="#2546b8"/>
+    <circle cx="62" cy="10" r="5" fill="#0e1a3a"/><circle cx="168" cy="10" r="5" fill="#0e1a3a"/>
+    <text x="115" y="35" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">मंसिर २०८३</text>
+    ${rows.map(([c, w], i) => `<circle cx="50" cy="${58 + i * 16}" r="4.5" fill="${c}"/><rect x="60" y="${54 + i * 16}" width="${w}" height="8" rx="4" fill="#e9ecf6"/>`).join("")}
+    <circle cx="196" cy="118" r="24" fill="#c8102e"/><path d="M196 104v14l9 6" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none"/>
+  </svg>`;
+}
 function startView() {
-  return `<section class="panel" style="padding:34px">
-    <div style="display:grid;gap:22px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:center">
-      <div style="display:grid;gap:12px">
+  return `<section class="panel start">
+    <div style="display:grid;gap:28px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:center">
+      <div style="display:grid;gap:14px">
+        <div class="eyebrow" style="color:var(--brand)">मुद्दा म्याद अनुगमन प्रणाली</div>
         <h1 style="font-size:1.8rem">Track every case's one-year expiry in Bikram Sambat</h1>
         <p style="margin:0;color:var(--muted);max-width:56ch">Upload your case register (.xlsx). Each case gets its exact BS expiry date and is sorted into Red, Yellow, Green or Overdue.
         Add or edit cases here, then download the updated master Excel.</p>
         <ul class="steps" style="color:var(--muted)"><li>Your file is read inside this browser. It is never uploaded to any server.</li><li>Nothing is saved when you close the page. Always download the Excel after changes.</li></ul>
         <div><button class="btn ghost" data-act="blank">or start an empty register</button></div>
       </div>
-      <div class="drop" id="drop">${ic("file", 46, 1.4)}<b style="font-size:1.1rem">Drop your Excel file here</b><span class="stamp">.xlsx or .xls · the sheet with the दर्ता मिती column is found automatically</span>
+      <div class="drop" id="drop">${startArt()}<b style="font-size:1.1rem">Drop your Excel file here</b><span class="stamp">.xlsx or .xls · the sheet with the दर्ता मिती column is found automatically</span>
         <button class="btn primary" data-act="pick">${ic("up", 16)}Choose Excel file</button><input type="file" id="fileIn" accept=".xlsx,.xlsm,.xls" hidden></div>
     </div></section>`;
 }
