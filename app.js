@@ -17,7 +17,7 @@ const ST_COLOR = { RED: "#d92d20", YELLOW: "#f5a524", GREEN: "#12a150", OVERDUE:
 // ---- cheque bounce (banking offence): a case must be registered within 1 BS year of the cheque bounce date
 const BOUNCE_DEFAULT = "चेक बाउन्स मिति";
 const BOUNCE_RE = /बाउन्स|बाउन्श|बाउंस|अनादर|bounce|dishono/i;
-const BOUNCE_COMPUTED = ["Bounce 1-Year Limit (BS)", "Bounce 1-Year Limit (AD)", "Bounce Check"];
+const BOUNCE_COMPUTED = ["Bounce 1-Year Limit (BS)", "Bounce 1-Year Limit (AD)", "Bounce 1-Year Time Left", "Bounce Check"];
 const BN = {
   OK: { label: "Within 1 year", short: "Within 1 yr", cls: "b-OK" },
   LATE: { label: "Beyond 1 year of bounce", short: "Beyond 1 yr", cls: "b-LATE" },
@@ -89,7 +89,9 @@ function bounceOf(c, r) {
   if (b === null) return { st: "NONE" };
   if (b === undefined) return { st: "BAD", raw };
   const lim = BS.addMonths(b, 12), limAD = BS.toAD(lim), bAD = BS.toAD(b);
-  const out = { st: "OK", b, lim, limAD, raw, left: limAD - today() };
+  const t0 = today(), out = { st: "OK", b, lim, limAD, raw, left: limAD - t0, pct: Math.max(0, Math.min(100, (t0 - bAD) / (limAD - bAD) * 100)) };
+  if (out.left > 0) { const dd = BS.diff(BS.fromAD(t0), lim); out.leftText = [dd.months ? `${dd.months} ${dd.months === 1 ? "Month" : "Months"}` : "", dd.days ? `${dd.days} ${dd.days === 1 ? "Day" : "Days"}` : ""].filter(Boolean).join(", ") + " left"; }
+  else out.leftText = out.left === 0 ? "1-year limit ends today" : `1-year limit passed ${-out.left} ${out.left === -1 ? "day" : "days"} ago`;
   if (!r || !r.darta) { out.st = "NODARTA"; return out; }
   const dAD = BS.toAD(r.darta);
   out.gap = dAD - bAD;
@@ -98,6 +100,13 @@ function bounceOf(c, r) {
   return out;
 }
 const gapText = x => x.gapMD ? [x.gapMD.months ? `${x.gapMD.months} ${x.gapMD.months === 1 ? "month" : "months"}` : "", x.gapMD.days || !x.gapMD.months ? `${x.gapMD.days} ${x.gapMD.days === 1 ? "day" : "days"}` : ""].filter(Boolean).join(" ") : "";
+function bounceCell(x) {
+  if (x.lim === undefined) return bouncePill(x);
+  const col = x.st === "LATE" ? "#5b2e9e" : x.st === "OK" ? "#7a4cc2" : "#a15c07";
+  return `<div class="bcell">${bouncePill(x)}<span class="blim">1-yr limit <b>${BS.fmt(x.lim)}</b></span>
+    <div class="prog bprog" title="${x.pct.toFixed(0)}% of the 1-year bounce period used"><i style="width:${x.pct}%;background:${col}"></i></div>
+    <span class="bleft">${esc(x.leftText)}</span></div>`;
+}
 function bouncePill(x) {
   const k = BN[x.st];
   const tip = x.st === "OK" || x.st === "LATE" ? `Bounce ${BS.fmt(x.b)} · 1-year limit ${BS.fmt(x.lim)} · registered ${gapText(x)} after bounce` : k.label;
@@ -224,7 +233,7 @@ function dashView() {
     <div class="panel span-7">
       <div class="panel-h"><h2><span class="tic" style="--c:#d92d20">${ic("hour", 16, 2.2)}</span>Next cases to expire</h2><a class="sub" href="#all">see all →</a></div>
       <div class="nextlist">${next.map(x => `<div class="nx" data-id="${esc(x.c.id)}">${ring(x)}
-        <div><div class="who">${esc(x.c.f[colName()]) || "–"}</div><div class="meta">${esc(colSerial())} ${esc(x.c.f[colSerial()])} · expires ${BS.fmt(x.r.exp)} · ${esc(x.r.label)}</div></div>
+        <div><div class="who">${esc(x.c.f[colName()]) || "–"}</div><div class="meta">${esc(colSerial())} ${esc(x.c.f[colSerial()])} · expires ${BS.fmt(x.r.exp)} · ${esc(x.r.label)}</div>${S.bounceCol && x.b.st !== "NONE" ? `<div class="meta">Cheque bounce: ${bouncePill(x.b)} ${x.b.lim ? `limit ${BS.fmt(x.b.lim)} · ${esc(x.b.leftText)}` : ""}</div>` : ""}</div>
         <span class="pill p-${x.r.status}">${ST_SHORT[x.r.status]}</span></div>`).join("") || `<div class="empty">No upcoming expiries.</div>`}</div>
     </div>
     <div class="panel span-5">
@@ -306,7 +315,7 @@ function listView(status) {
       <td><span class="remain" style="color:${ok ? (r.status === "GREEN" ? "var(--ink)" : ST_COLOR[r.status]) : "var(--muted)"}">${esc(r.label)}</span>
         ${ok ? `<div class="prog" title="${pct.toFixed(0)}% of the 6-month period used"><i style="width:${pct}%;background:${ST_COLOR[r.status]}"></i></div>` : ""}</td>
       <td class="num">${ok ? (ov ? `${-r.total} overdue` : `${r.total} days`) : "–"}</td>
-      <td>${bouncePill(x.b)}</td>
+      <td>${bounceCell(x.b)}</td>
       <td><span class="pill p-${r.status}">${ST_SHORT[r.status]}</span></td></tr>`;
   }).join("");
   const mchips = status !== "CHECK" && months.length > 1 ? `<div class="filters"><button class="fchip ${S.month ? "" : "on"}" data-month="">All months</button>${months.map(k =>
@@ -315,7 +324,7 @@ function listView(status) {
     <div><h1>${title} <span class="sub" style="font-family:var(--body);font-weight:500;color:var(--muted);font-size:1rem">· ${list.length}</span></h1><p>${ST_HINT[status]}</p></div></div>
     <div class="tools"><button class="btn ghost" data-act="print">${ic("print", 16)}Print</button><button class="btn" data-act="download">${ic("dl", 16)}Download Excel</button></div></div>
     ${mchips}
-    ${list.length ? `<div class="tablewrap"><table class="list"><thead><tr><th></th><th><button data-act="sort-serial">${esc(colSerial())}</button></th><th>जाहेरवाला / प्रतिवादी</th><th>Darta Miti (BS)</th><th><button data-act="sort-exp">Expiry</button></th><th>Remaining</th><th>${ov ? "Overdue" : "Total"}</th><th title="Registered within 1 year of the cheque bounce date?">Bounce · 1 yr</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ${list.length ? `<div class="tablewrap"><table class="list"><thead><tr><th></th><th><button data-act="sort-serial">${esc(colSerial())}</button></th><th>जाहेरवाला / प्रतिवादी</th><th>Darta Miti (BS)</th><th><button data-act="sort-exp">Expiry</button></th><th>Remaining</th><th>${ov ? "Overdue" : "Total"}</th><th title="Cheque bounce date + 1 BS year">Cheque bounce · 1 year</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`
       : `<div class="panel"><div class="empty">${ic("check", 44, 1.6)}<p>${q ? "No cases match your search." : "No cases in this list right now."}</p></div></div>`}`;
 }
 
@@ -344,7 +353,14 @@ function bounceBox(x) {
   else if (x.st === "BAD") body = `“${esc(x.raw)}” is not a valid date. Edit the case and enter it like २०८३।०३।१०.`;
   else if (x.st === "NODARTA") body = `Bounce ${BS.fmt(x.b)} · 1-year limit ${BS.fmt(x.lim)}. Correct the Darta Miti to complete the check.`;
   else body = S.bounceCol ? "No cheque bounce date entered for this case. Edit the case to add it." : "This file has no cheque bounce date column. Edit the case to add the date.";
-  return `<div class="bbox ${k.cls}"><div><span class="eyebrow">Cheque bounce · 1-year check</span><b>${k.label}</b></div><p>${body}</p></div>`;
+  const bar = x.lim !== undefined ? `<div class="track btrack"><div class="rail"><i style="width:${x.pct}%"></i></div><div class="ends"><span>Bounce ${BS.fmt(x.b)}</span><span>${esc(x.leftText)}</span><span>Limit ${BS.fmt(x.lim)}</span></div></div>` : "";
+  return `<div class="bbox ${k.cls}"><div><span class="eyebrow">Second check · cheque bounce + 1 year</span><b>${k.label}</b></div><p>${body}</p>${bar}</div>`;
+}
+function remainCell(r) {
+  if (r.status === "CHECK") return `<span class="remain" style="color:var(--muted)">${esc(r.label)}</span>`;
+  const pct = elapsedPct(r);
+  return `<span class="remain" style="color:${r.status === "GREEN" ? "var(--ink)" : ST_COLOR[r.status]}">${esc(r.label)}</span>
+    <div class="prog" title="${pct.toFixed(0)}% of the 6-month period used"><i style="width:${pct}%;background:${ST_COLOR[r.status]}"></i></div>`;
 }
 function bounceView() {
   const order = { LATE: 0, ORDER: 1, BAD: 2, NODARTA: 3, OK: 4, NONE: 5 };
@@ -358,18 +374,19 @@ function bounceView() {
     return `<tr class="s-${x.r.status}" data-id="${esc(x.c.id)}" tabindex="0"><td class="bar"></td>
       <td class="num"><b>${esc(x.c.f[colSerial()])}</b></td>
       <td class="who2"><b>${esc(x.c.f[colName()]) || "–"}</b><span>${esc(x.c.f[colDef()])}</span></td>
-      <td class="date">${b.b ? `<b>${BS.fmt(b.b)}</b><span>cheque bounced</span>` : b.st === "BAD" ? `<b style="color:var(--red-ink)">${esc(b.raw)}</b><span>cannot be read</span>` : "–"}</td>
-      <td class="date">${ok ? `<b>${BS.fmt(b.lim)}</b><span>${BS.adStr(b.limAD)} AD</span>` : "–"}</td>
       <td class="date">${x.r.darta ? `<b>${BS.fmt(x.r.darta)}</b><span>${b.gapMD ? gapText(b) + " after bounce" : "Darta Miti"}</span>` : `<b style="color:var(--red-ink)">${esc(dateOf(x.c)) || "–"}</b><span>cannot be read</span>`}</td>
-      <td>${bouncePill(b)}${b.st === "LATE" ? `<div class="stamp">${b.lateBy} ${b.lateBy === 1 ? "day" : "days"} late</div>` : ""}</td>
+      <td class="date">${x.r.exp ? `<b>${BS.fmt(x.r.exp)}</b><span>${BS.adStr(x.r.expAD)} AD</span>` : "–"}</td>
+      <td>${remainCell(x.r)}</td>
+      <td class="date">${b.b ? `<b>${BS.fmt(b.b)}</b><span>cheque bounced</span>` : b.st === "BAD" ? `<b style="color:var(--red-ink)">${esc(b.raw)}</b><span>cannot be read</span>` : "–"}</td>
+      <td>${bounceCell(b)}</td>
       <td><span class="pill p-${x.r.status}">${ST_SHORT[x.r.status]}</span></td></tr>`; }).join("");
   return `<div class="listhead"><div class="title"><span class="chip" style="background:#7a4cc21a;color:#7a4cc2">${ic("alert", 22)}</span>
     <div><h1>Cheque bounce · 1-year check <span class="sub" style="font-family:var(--body);font-weight:500;color:var(--muted);font-size:1rem">· ${list.length}</span></h1>
-    <p>A banking offence case must be registered within 1 BS year of the cheque bounce date. Cases within the limit follow the 6-month Darta Miti tracking as before.</p></div></div>
+    <p>Main deadline: 6 BS months from the Darta Miti. Second check: the case must be registered within 1 BS year of the cheque bounce date.</p></div></div>
     <div class="tools"><button class="btn ghost" data-act="print">${ic("print", 16)}Print</button><button class="btn" data-act="download">${ic("dl", 16)}Download Excel</button></div></div>
     ${S.bounceCol ? `<div class="filters">${chips.map(([k, l, nn]) => `<button class="fchip ${f === k ? "on" : ""}" data-bf="${k}">${l} · ${nn}</button>`).join("")}</div>` :
       `<div class="panel"><div class="msg info">This file has no cheque bounce date column. Add a column named <b>${BOUNCE_DEFAULT}</b> to your Excel (dates like २०८३।०३।१०), or open a case, click <b>Edit</b> and fill the cheque bounce date. The column is added automatically.</div></div>`}
-    ${S.bounceCol ? (list.length ? `<div class="tablewrap"><table class="list"><thead><tr><th></th><th>${esc(colSerial())}</th><th>जाहेरवाला / प्रतिवादी</th><th>Cheque bounce</th><th>1-year limit</th><th>Darta Miti</th><th>Bounce check</th><th>6-month status</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ${S.bounceCol ? (list.length ? `<div class="tablewrap"><table class="list"><thead><tr><th></th><th>${esc(colSerial())}</th><th>जाहेरवाला / प्रतिवादी</th><th>Darta Miti</th><th>6-month expiry</th><th>Remaining (6 months)</th><th>Cheque bounce</th><th>Bounce + 1 year</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`
       : `<div class="panel"><div class="empty">${ic("check", 44, 1.6)}<p>No cases in this group.</p></div></div>`) : ""}`;
 }
 function closeAll() { $("#drawer").classList.remove("on"); $("#modal").classList.remove("on"); $("#scrim").classList.remove("on"); }
@@ -699,7 +716,7 @@ async function downloadExcel() {
       const vals = [...hs.map(h => x.c.f[h] ?? ""), ok ? BS.fmt(r.darta) : "INVALID: " + dateOf(x.c), ok ? BS.fmt(r.exp) : "", ok ? adDate(r.expAD) : "",
         ...(overdue ? [-r.total] : ok ? [r.months, r.days, r.total] : ["", "", ""]), r.label, r.status === "CHECK" ? "CHECK DATE" : r.status];
       if (S.bounceCol) { const bx = bounceOf(x.c, r), has = bx.lim !== undefined;
-        vals.push(has ? BS.fmt(bx.lim) : "", has ? adDate(bx.limAD) : "", bx.st === "LATE" ? `BEYOND 1 YEAR (${bx.lateBy} days late)` : bx.st === "OK" ? "Within 1 year" : BN[bx.st].label); }
+        vals.push(has ? BS.fmt(bx.lim) : "", has ? adDate(bx.limAD) : "", has ? bx.leftText : "", bx.st === "LATE" ? `BEYOND 1 YEAR (${bx.lateBy} days late)` : bx.st === "OK" ? "Within 1 year" : BN[bx.st].label); }
       vals.forEach((v, j) => {
         const cell = ws.getCell(5 + i, j + 1);
         cell.value = /^\d{1,15}$/.test(v) && j < hs.length && !/^0\d/.test(v) ? Number(v) : v;

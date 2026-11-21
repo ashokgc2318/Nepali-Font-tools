@@ -381,7 +381,7 @@ table.list th { background: linear-gradient(180deg, #f7f8fc, #eff2f9); }
 .bpill.b-WARN { background: #fff6e0; color: #a15c07; border-color: #f6dca1; }
 .bpill.b-NONE { background: transparent; color: var(--muted); border: 1px dashed #cfd5e3; font-weight: 600; }
 .bbox { border-radius: 14px; padding: 14px 16px; display: grid; gap: 6px; border: 1px solid var(--line); }
-.bbox b { display: block; font-family: var(--display); font-size: 1.05rem; }
+.bbox > div > b { display: block; font-family: var(--display); font-size: 1.05rem; }
 .bbox p { margin: 0; font-size: .92rem; }
 .bbox .eyebrow { color: var(--muted); }
 .bbox.b-OK { background: #eef9f2; border-color: #bfe8cf; }
@@ -390,3 +390,14 @@ table.list th { background: linear-gradient(180deg, #f7f8fc, #eff2f9); }
 .bbox.b-NONE { background: #f7f8fb; }
 .bfield { background: #f8f5fd; border: 1px dashed #d4c1f0; border-radius: 12px; padding: 10px 12px; }
 .bfield .stamp { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px; }
+
+.bcell { display: grid; gap: 3px; min-width: 150px; justify-items: start; }
+.bcell .blim { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+.bcell .blim b { color: var(--ink); font-weight: 600; }
+.bcell .bleft { font-size: .78rem; color: #5b2e9e; font-weight: 600; white-space: nowrap; }
+.prog.bprog { height: 5px; width: 140px; margin-top: 1px; background: #efe8fa; }
+.bbox .btrack { margin-top: 4px; }
+.bbox .btrack .rail { background: #e6dcf6; }
+.bbox .btrack .rail i { background: #7a4cc2; }
+.bbox .btrack .ends { color: var(--muted); }
+.nx .meta .bpill { padding: 1px 7px; font-size: .7rem; }
