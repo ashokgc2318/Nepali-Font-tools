@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Bikram Sambat case expiry tracker. Runs in your browser; files are never uploaded.">
+<meta name="robots" content="noindex">
+<title>Case Expiry Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230e1a3a'/%3E%3Crect x='14' y='18' width='36' height='32' rx='5' fill='none' stroke='%23fff' stroke-width='4'/%3E%3Cpath d='M14 28h36' stroke='%23fff' stroke-width='4'/%3E%3Ccircle cx='43' cy='42' r='9' fill='%23c8102e'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="logo">
+      <svg width="40" height="40" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#172650"/><rect x="14" y="17" width="36" height="32" rx="5" fill="none" stroke="#fff" stroke-width="3.5"/><path d="M14 27h36M23 12v9M41 12v9" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><circle cx="44" cy="43" r="10" fill="#c8102e"/><path d="M44 38v5.5l3.5 2" stroke="#fff" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>
+      <div><b>Case Expiry Monitor</b><span>मुद्दा म्याद अनुगमन · BS</span></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="me">
+      <div>File: <b id="meName">–</b></div>
+      <div class="live" id="saveState"><i></i><span>Upload an Excel to begin</span></div>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="today"><b id="todayBS">–</b><span id="todayAD"></span></div>
+      <div class="tools">
+        <label class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" type="search" placeholder="Search name, phone, address, सि.न." aria-label="Search all cases"></label>
+        <button class="btn" id="dlBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M4 20h16"/></svg>Download Excel</button>
+        <button class="btn primary" id="addBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New case</button>
+      </div>
+    </header>
+    <main class="content" id="content"><div class="empty">Loading cases…</div></main>
+  </div>
+</div>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Case details"></aside>
+<section class="modal" id="modal" role="dialog" aria-modal="true"></section>
+<div class="toast" id="toast" hidden></div>
+<script src="vendor/chart.umd.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/exceljs.min.js"></script>
+<script src="bs.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
